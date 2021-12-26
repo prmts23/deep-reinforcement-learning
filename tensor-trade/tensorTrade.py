@@ -1,38 +1,63 @@
-from tensortrade.environments import TradingEnvironment
-from tensortrade.exchanges.simulated import SimulatedExchange
-from tensortrade.exchanges.live import CCXTExchange
+import ta
 
-import ccxt
 import pandas as pd
+import tensortrade.env.default as default
+
+from tensortrade.data.cdd import CryptoDataDownload
+from tensortrade.feed.core import Stream, DataFeed, NameSpace
+from tensortrade.oms.instruments import USD, BTC, ETH, LTC
+from tensortrade.oms.wallets import Wallet, Portfolio
+from tensortrade.oms.exchanges import Exchange
+from tensortrade.oms.services.execution.simulated import execute_order
+from tensortrade.agents import DQNAgent
 
 
-# GET BINANCE EXCHANGE LIVE USE
+cdd = CryptoDataDownload()
 
-# binance = ccxt.binance()
-# exchange = CCXTExchange(exchange=binance, base_instrument='USD')
+bitfinex_data = pd.concat([
+    cdd.fetch("Bitfinex", "USD", "BTC", "1h").add_prefix("BTC:"),
+    ], axis=1)
 
 
-
-import json
-
-data = json.load(open("1INCH_BUSD-5m.json", "r"))
-
-df = pd.DataFrame.from_dict(data, orient="columns")
-
-df.rename(
-    columns={0: "Date", 1: "Open", 2: "High", 3: "Low", 4: "Close", 5: "Volume"},
-    inplace=True,
+bitfinex = Exchange("bitfinex", service=execute_order)(
+    Stream.source(list(bitfinex_data['BTC:close']), dtype="float").rename("USD-BTC")
 )
 
-df["Date"] = pd.to_datetime(df["Date"], unit="ms")
+bitfinex_btc = bitfinex_data.loc[:, [name.startswith("BTC") for name in bitfinex_data.columns]]
 
-df.set_index("Date", inplace=True)
+ta.add_all_ta_features(
+    bitfinex_data,
+    colprefix="BTC:",
+    **{k: "BTC:" + k for k in ['open', 'high', 'low', 'close', 'volume']}
+)
 
-print(df.dtypes)
-print(df.head())
+with NameSpace("bitfinex"):
+    bitfinex_streams = [
+        Stream.source(list(bitfinex_btc[c]), dtype="float").rename(c) for c in bitfinex_btc.columns
+    ]
+
+feed = DataFeed(bitfinex_streams)
 
 
-# environment = TradingEnvironment(exchange=exchange,
-#                                  action_scheme=action_scheme,
-#                                  reward_scheme=reward_scheme,
-#                                  feature_pipeline=feature_pipeline)
+portfolio = Portfolio(USD, [
+    Wallet(bitfinex, 10000 * USD),
+    Wallet(bitfinex, 10 * BTC),
+])
+
+env = default.create(
+    portfolio=portfolio,
+    action_scheme="managed-risk",
+    reward_scheme="risk-adjusted",
+    feed=feed,
+    window_size=15,
+    enable_logger=False
+)
+
+
+done = False
+obs = env.reset()
+while not done:
+    action = env.action_space.sample()
+    obs, reward, done, info = env.step(action)
+
+portfolio.ledger.as_frame().head(7)
