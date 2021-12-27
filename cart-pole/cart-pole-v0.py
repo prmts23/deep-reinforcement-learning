@@ -1,14 +1,14 @@
 import random
 import gym
 
-import numpy as np
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Dense, Flatten
-from rl.agents import DQNAgent
-from rl.policy import BoltzmannQPolicy
-from rl.memory import SequentialMemory
-from tensorflow.python.util import memory
+# import numpy as np
+# from tensorflow.keras.models import Sequential
+# from tensorflow.keras.optimizers import Adam
+# from tensorflow.keras.layers import Dense, Flatten
+# from rl.agents import DQNAgent
+# from rl.policy import BoltzmannQPolicy
+# from rl.memory import SequentialMemory
+# from tensorflow.python.util import memory
 
 env = gym.make("CartPole-v0")
 states = env.observation_space.shape[0]
