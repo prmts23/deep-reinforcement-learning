@@ -20,6 +20,7 @@ class SaveOnStepCallback(BaseCallback):
         assert Path(save_dir).exists()
 
     def _on_step(self) -> bool:
+
         # Log scalar value (here a random variable)
         # total_profit = self.training_env.buf_infos[0]['total_profit']
         # self.logger.record('total_profit', total_profit)
@@ -35,7 +36,8 @@ class SaveOnStepCallback(BaseCallback):
                 mean_reward = np.mean(y[-100:])
                 if self.verbose:
                     print(f"Num timesteps: {self.num_timesteps}")
-                    print("Best mean reward: {:.2f} - Last mean reward per episode: {:.2f}".format(self.best_mean_reward, mean_reward))
+                    print("Best mean reward: {:.2f} - Last mean reward per episode: {:.2f}".format(
+                        self.best_mean_reward, mean_reward))
 
                 # New best model, lets save
                 if mean_reward > self.best_mean_reward:

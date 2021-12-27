@@ -33,11 +33,13 @@ class CustomEnv(gym.Env):
 
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, df, initial_balance=1000, window_size=50, stake_amount=200, fee=0.01, stop_loss=-0.15, punish_holding_amount=0, pair='1INCH/BUSD'):
+    def __init__(self, df, indicator_dataframe, initial_balance=1000, window_size=50, stake_amount=200, fee=0.01, stop_loss=-0.15, punish_holding_amount=0, pair='1INCH/BUSD',
+                 minimum_roi=0.02,
+                 ):
 
         # Settings
         self.dataframe = df
-        self.indicator_dataframe = None
+        self.indicator_dataframe = indicator_dataframe
         self.window_size = window_size
         self.pair = pair
 
@@ -48,6 +50,7 @@ class CustomEnv(gym.Env):
         self.trades = []
 
         # Logic
+        self.minimum_roi = minimum_roi
         self.fee = fee
         self.stop_loss = stop_loss
         assert self.stop_loss <= 0, "`stoploss` should be less or equal to 0"
@@ -61,7 +64,7 @@ class CustomEnv(gym.Env):
         self.total_reward = 0
 
         # Env settings
-        _, number_of_features = self.dataframe.shape
+        _, number_of_features = self.indicator_dataframe.shape
         self.shape = (self.window_size, number_of_features)
 
         self.action_space = spaces.Discrete(len(Actions))
@@ -84,71 +87,18 @@ class CustomEnv(gym.Env):
         self.total_reward = 0
 
         self._current_tick = self.window_size + 1
-        self._end_tick = len(self.dataframe) - 1
+        self._end_tick = len(self.indicator_dataframe) - 1
 
         return self._get_observation()
     # 2
 
     def _get_observation(self):
+        return self.indicator_dataframe[(self._current_tick - self.window_size): self._current_tick].to_numpy()
 
-        return self.dataframe[(self._current_tick - self.window_size): self._current_tick].to_numpy()
-
-    def _take_action(self, action):
-        print("=== _take_action")
-
-        if action == Actions.Hold.value:
-            self._reward = self.punish_holding_amount
-            if self.opened_trade != None:
-                profit_percent = self.opened_trade.calc_profit_ratio(
-                    rate=self.prices.loc[self._current_tick].open
-                )
-                if profit_percent <= self.stop_loss:
-                    self._reward = profit_percent
-                    self.opened_trade = None
-            return
-
-        if action == Actions.Buy.value:
-            if self.opened_trade == None:
-                self.opened_trade = Trade(
-                    pair=self.pair,
-                    open_rate=self.prices.loc[self._current_tick].open,
-                    open_date=self.prices.loc[self._current_tick].date,
-                    stake_amount=self.stake_amount,
-                    amount=self.stake_amount /
-                    self.prices.loc[self._current_tick].open,
-                    fee_open=self.fee,
-                    fee_close=self.fee,
-                    is_open=True,
-                )
-                self.trades.append(
-                    {
-                        "step": self._current_tick,
-                        "type": "buy",
-                        "total": self.prices.loc[self._current_tick].open,
-                    }
-                )
-            return
-
-        if action == Actions.Sell.value:
-            if self.opened_trade != None:
-                profit_percent = self.opened_trade.calc_profit_ratio(
-                    rate=self.prices.loc[self._current_tick].open
-                )
-                self.opened_trade = None
-                self._reward = profit_percent
-
-                self.trades.append(
-                    {
-                        "step": self._current_tick,
-                        "type": "sell",
-                        "total": self.prices.loc[self._current_tick].open,
-                    }
-                )
-            return
     # Execute one time step within the environment
+    # 3
 
     def step(self, action):
-        print("=== step")
        # Execute one time step within the environment
         done = False
 
@@ -167,6 +117,71 @@ class CustomEnv(gym.Env):
 
         return observation, self._reward, done, {}
 
+     # 4
+
+    def _take_action(self, action):
+
+        if action == Actions.Hold.value:
+            self._reward = self.punish_holding_amount
+            if self.opened_trade != None:
+                profit_percent = self.opened_trade.calc_profit_ratio(
+                    rate=self.dataframe.loc[self._current_tick].open
+                )
+                if profit_percent <= self.stop_loss:
+                    self._reward = profit_percent
+                    self.opened_trade = None
+
+                if profit_percent >= self.minimum_roi:
+                    self.opened_trade = None
+                    self._reward = profit_percent
+                    self.trades.append(
+                        {
+                            "step": self._current_tick,
+                            "type": "sell",
+                            "total": self.dataframe.loc[self._current_tick].open,
+                        }
+                    )
+            return
+
+        if action == Actions.Buy.value:
+            if self.opened_trade == None:
+                self.opened_trade = Trade(
+                    pair=self.pair,
+                    open_rate=self.dataframe.loc[self._current_tick].open,
+                    open_date=self.dataframe.loc[self._current_tick].date,
+                    stake_amount=self.stake_amount,
+                    amount=self.stake_amount /
+                    self.dataframe.loc[self._current_tick].open,
+                    fee_open=self.fee,
+                    fee_close=self.fee,
+                    is_open=True,
+                )
+                self.trades.append(
+                    {
+                        "step": self._current_tick,
+                        "type": "buy",
+                        "total": self.dataframe.loc[self._current_tick].open,
+                    }
+                )
+            return
+
+        if action == Actions.Sell.value:
+            if self.opened_trade != None:
+                profit_percent = self.opened_trade.calc_profit_ratio(
+                    rate=self.dataframe.loc[self._current_tick].open
+                )
+                self.opened_trade = None
+                self._reward = profit_percent
+
+                self.trades.append(
+                    {
+                        "step": self._current_tick,
+                        "type": "sell",
+                        "total": self.dataframe.loc[self._current_tick].open,
+                    }
+                )
+            return
+
 
 def seed(self, seed=None):
     self.np_random, seed = seeding.np_random(seed)
@@ -179,7 +194,7 @@ TRAINING_RANGE = "20210601-20210901"
 WINDOW_SIZE = 50
 LOAD_PREPROCESSED_DATA = False  # useful if you have to calculate a lot of features
 SAVE_PREPROCESSED_DATA = True
-LEARNING_TIME_STEPS = int(10000)
+LEARNING_TIME_STEPS = int(2000000)
 LOG_DIR = "./logs/"
 TENSORBOARD_LOG = "./tensorboard/"
 MODEL_DIR = "./models/"
@@ -212,21 +227,27 @@ def get_dataframe():
 
     data = load_data(freqtrade_config, PAIR, timeframe,
                      TRAINING_RANGE, WINDOW_SIZE)
+    data = strategy.advise_all_indicators(data)
     if SAVE_PREPROCESSED_DATA:
         mpu.io.write(_preprocessed_data_file, data)
 
-    pair_data = data[PAIR][required_startup:].copy()
+    indicator_dataframe = data[PAIR][required_startup:].copy()
+    indicator_dataframe.reset_index(drop=True, inplace=True)
 
-    return pair_data
+    dataframe = indicator_dataframe[[
+        "date", "open", "close", "high", "low", "volume"]].copy()
+
+    indicator_dataframe.drop(columns=["date", "open", "close",
+                                      "high", "low", "volume"], inplace=True)
+    indicator_dataframe.fillna(0, inplace=True)
+
+    return indicator_dataframe, dataframe
 
 
 def main():
-    df = get_dataframe()
+    indicator_dataframe, df = get_dataframe()
 
-    train_df = df[:-720-WINDOW_SIZE]
-    test_df = df[-720-WINDOW_SIZE:]  # 30 days
-
-    train_env = CustomEnv(train_df, window_size=WINDOW_SIZE)
+    train_env = CustomEnv(df, indicator_dataframe, window_size=WINDOW_SIZE)
     # test_env = CustomEnv(test_df, window_size=WINDOW_SIZE)
 
     train_env = Monitor(train_env, LOG_DIR)

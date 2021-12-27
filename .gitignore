@@ -1,3 +1,17 @@
+config*.json
+*.sqlite
+logfile.txt
+user_data/*
+!user_data/strategies
+!user_data/notebooks
+user_data/notebooks/*
+freqtrade-plot.html
+freqtrade-profit-plot.html
+freqtrade/rpc/api_server/ui/*
+
+
+*.pickle
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
